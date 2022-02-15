@@ -1,0 +1,207 @@
+#pragma kernel TraceDagKernel DATA_GRAY MODE_POSITION
+#pragma kernel TraceDagKernel DATA_GRAY MODE_COLOR
+#pragma kernel TraceDagKernel DATA_GRAY MODE_POSITION_NORMALIZED
+#pragma kernel TraceDagKernel DATA_GRAY MODE_DAG_NODE_HIGHLIGHTING
+#pragma kernel TraceDagKernel DATA_GRAY MODE_LEVEL_OF_DETAIL_HIGHLIGHTING
+#pragma kernel TraceDagKernel DATA_COLOR DATA_COLOR_NODE MODE_POSITION
+#pragma kernel TraceDagKernel DATA_COLOR DATA_COLOR_POINTER MODE_POSITION
+#pragma multi_compile SHADOWS _
+
+#define LOCAL_GROUP_SIZE 8
+
+#ifdef DATA_GRAY
+#include "tracersDag.cginc"
+#endif
+#ifdef DATA_COLOR
+    #ifdef DATA_COLOR_NODE
+        #include "tracersDag_color_node.cginc"
+    #endif
+    #ifdef DATA_COLOR_POINTER
+        #include "tracersDag_color_pointer.cginc"
+    #endif
+#endif
+
+RWTexture2D<float4> _outPositions;
+RWTexture2D<int> _outColorIndices;
+
+StructuredBuffer<uint> _inVoxels;
+
+int _octreeMaxDepth;
+float3 _octreeLowerBounds;
+float3 _octreeUpperBounds;
+
+float4x4 _cameraToWorld;
+float4x4 _cameraInverseProjection;
+
+Texture2D<float4> _skyboxTexture;
+SamplerState sampler_skyboxTexture;
+float _directionalLightIntensity;
+float3 _directionalLightDirection;
+
+static const float PI = 3.14159265f;
+float2 _pixelOffset;
+float _projFactor;
+
+
+uniform int4 _levelStartIndices[23];
+
+float3 GetNormal(float3 hitPos, float3 pos, float t)
+{
+    float3 normal;
+    float3 originHit = hitPos - pos;
+    if (abs(originHit.y) > abs(originHit.x))
+    {
+        normal = abs(originHit.z) > abs(originHit.y) ? float3(0, 0, originHit.z) : float3(0, originHit.y, 0);
+    }
+    else
+    {
+        normal = abs(originHit.z) > abs(originHit.x) ? float3(0, 0, originHit.z) : float3(originHit.x, 0, 0);
+    }
+
+    return normalize(normal);
+}
+
+
+float3 Shade(Ray ray, TraceResult res)
+{
+    if (any(res.hitPos))
+    {
+        //if (InShadow(hit)) return float3(0.00f, 0.00f, 0.00f);
+        float3 normal = GetNormal(GetHitWorldPos(ray, res), res.voxelPos, res.t);
+        
+        //lambertian color
+        float3 color = saturate(dot(normal, _directionalLightDirection) * -1) * _directionalLightIntensity * float3(.6f, .6f, .6f);
+        
+		return color;
+	}
+    else
+    {
+        // Sample the skybox and write it
+        float theta = acos(ray.direction.y) / -PI;
+        float phi = atan2(ray.direction.x, ray.direction.z) / -PI * 0.5f;
+        float3 color = _skyboxTexture.SampleLevel(sampler_skyboxTexture, float2(phi, theta), 0).xyz;
+        return color;
+    }
+}
+
+[numthreads(LOCAL_GROUP_SIZE, LOCAL_GROUP_SIZE, 1)]
+void TraceDagKernel(uint3 id : SV_DispatchThreadID, uint3 gThreadId : SV_GroupThreadID)
+{
+
+    #ifdef DATA_COLOR
+        // Get the dimensions of the RenderTexture
+        uint width, height;
+        _outPositions.GetDimensions(width, height);
+
+        // Transform pixel to [-1,1] range
+        float2 uv = float2((id.xy + _pixelOffset) / float2(width, height) * 2.0f - 1.0f);
+    
+        // Get a ray for the UVs
+        Ray ray = CreateCameraRay(uv, _cameraToWorld, _cameraInverseProjection);
+
+        TraceResult res = CreateTraceResult();
+        TraceDag(_inVoxels, _octreeMaxDepth, ray, res, 0);
+    
+        _outColorIndices[id.xy] = res.colorIndex;
+
+        #ifdef SHADOWS
+        if (any(res.hitPos))
+        {
+            //Create shadow ray
+            float3 bias = -_directionalLightDirection * .01f;
+            float3 origin = res.hitPos + bias;
+            float3 dir = -_directionalLightDirection;
+            Ray shadowRay = CreateRay(origin, dir);
+
+            TraceResult shRes;
+            TraceDag(_inVoxels, _octreeMaxDepth, shadowRay, shRes, 0);
+            _outPositions[id.xy] = float4(res.hitPos, any(shRes.hitPos) ? 0.0f : 1.0f);
+                    
+            return;
+        }
+        #endif
+        _outPositions[id.xy] = float4(res.hitPos, 1.0f);
+    
+        return;
+    #endif
+
+
+    #ifdef DATA_GRAY
+        // Get the dimensions of the RenderTexture
+        uint width, height;
+        _outPositions.GetDimensions(width, height);
+
+        // Transform pixel to [-1,1] range
+	    float2 uv = float2((id.xy + _pixelOffset) / float2(width, height) * 2.0f - 1.0f);
+        // Get a ray for the UVs
+        Ray ray = CreateCameraRay(uv, _cameraToWorld, _cameraInverseProjection);
+
+        TraceResult res = CreateTraceResult();
+        #ifdef MODE_DAG_NODE_HIGHLIGHTING
+            int colorFull;
+
+            TraceDagNodeHighlighting(_inVoxels, 0, _octreeMaxDepth, ray, res, colorFull, _levelStartIndices);
+            if (!any(res.hitPos))
+            {
+                float3 col = Shade(ray, res);
+                _outPositions[id.xy] = float4(col, 1.0f);
+                return;
+            }
+
+            float3 col = float3(((colorFull >> 16) & 0xFF) / 255.f, ((colorFull >> 8) & 0xFF) / 255.f, ((colorFull >> 0) & 0xFF) / 255.f);
+            _outPositions[id.xy] = float4(col, 1.0f);
+        
+        #elif MODE_LEVEL_OF_DETAIL_HIGHLIGHTING
+            int depth = 0;
+            //float projFactor = 0.0001f;
+            // projFactor = 0.0f;
+    
+            TraceDagNodeLODHighlighting(_inVoxels, 0, _octreeMaxDepth, ray, res, _projFactor, depth);
+            if (!any(res.hitPos))
+            {
+                float3 col = Shade(ray, res);
+                _outPositions[id.xy] = float4(col, 1.0f);
+                return;
+            }
+            
+            float range =( depth) / (float)  (_octreeMaxDepth);
+            float3 col = lerp(float3(1.0f, 0.0f,0.0f), float3(0.0f,1.0f,0.0f), float3(range, range, range));
+            _outPositions[id.xy] = float4(col, 1.0f);
+        #else //DAG GRAY RENDERING
+            TraceDag(_inVoxels, 0, _octreeMaxDepth, ray, _projFactor, res);
+
+            #ifdef SHADOWS
+            if (any(res.hitPos))
+            {
+                //Create shadow ray
+                float3 origin = res.hitPos + -_directionalLightDirection * .01f;
+                float3 dir = -_directionalLightDirection;
+                Ray shadowRay = CreateRay(origin, dir);
+
+                TraceResult shRes;
+                TraceDag(_inVoxels, 0, _octreeMaxDepth, shadowRay, 0.0f, shRes);
+                _outPositions[id.xy] = float4(res.hitPos, any(shRes.hitPos) ? 0.0f : 1.0f);
+                
+                return;
+            }
+            #endif
+
+            #ifdef MODE_POSITION
+            _outPositions[id.xy] = float4(res.hitPos, 1.0f);
+            #ifdef DATA_COLOR
+            _outColorIndices[id.xy] = res.colorIndex;
+            #endif
+            #endif
+
+            #ifdef MODE_POSITION_NORMALIZED
+            float3 col = res.hitPos.z - 1.0f;
+            _outPositions[id.xy] = float4(col, 1.0f);
+            #endif
+
+            #ifdef MODE_COLOR   
+            float3 col = Shade(ray, res);
+            _outPositions[id.xy] = float4(col, 1.0f);
+            #endif
+        #endif
+    #endif
+}

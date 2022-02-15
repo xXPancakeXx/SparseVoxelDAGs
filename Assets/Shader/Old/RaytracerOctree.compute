@@ -1,0 +1,507 @@
+#pragma kernel CSMain
+#define LOCAL_GROUP_SIZE 8
+//#pragma use_dxc 
+//#pragma enable_d3d11_debug_symbols
+
+struct Ray
+{
+    float3 origin;
+    float3 direction;
+};
+
+struct RayHit
+{
+    float3 position;
+    float distance;
+    float3 normal;
+    float3 albedo;
+};
+
+struct AABB 
+{
+    float3 min;
+    float3 max;
+};
+
+struct Plane
+{
+    float3 normal;
+    float position;
+};
+
+struct Input 
+{
+    uint childrenRelativePointer;
+    uint leafMask;
+    uint validMask;
+};
+
+struct DepthData
+{
+    uint ptr;
+    Input copiedNode;
+    AABB bounds;
+    float3 distances;
+    uint octantId;
+    Ray ray;
+};
+
+
+
+Ray CreateRay(float3 origin, float3 direction)
+{
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+    return ray;
+}
+
+RayHit CreateRayHit()
+{
+    RayHit hit;
+    hit.position = float3(0.0f, 0.0f, 0.0f);
+    hit.distance = 1.#INF;
+    hit.normal = float3(0.0f, 0.0f, 0.0f);
+    hit.albedo = float3(0.6f, 0.6f, 0.6f);
+    return hit;
+}
+
+AABB CreateAABB()
+{
+    AABB a;
+    a.min = float3(0, 0, 0);
+    a.max = float3(0, 0, 0);
+    return a;
+}
+
+DepthData CreateDepthData(uint ptr, Input copiedNode, AABB bounds, uint octantId, float3 distances, Ray ray)
+{
+    DepthData d;
+
+    d.ptr = ptr;
+    d.copiedNode = copiedNode;
+    d.bounds = bounds;
+    d.distances = distances;
+    d.octantId = octantId;
+    d.ray = ray;
+    return d;
+}
+
+DepthData CopyDepthData(inout DepthData depthData)
+{
+    DepthData d;
+
+    d.ptr = depthData.ptr;
+    d.copiedNode = depthData.copiedNode;
+    d.bounds = depthData.bounds;
+    d.distances = depthData.distances;
+    d.octantId = depthData.octantId;
+    d.ray = depthData.ray;
+    return d;
+}
+
+RWTexture2D<float4> Result;
+RWStructuredBuffer<Input> _octreeNodes;
+
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+
+Texture2D<float4> _skyboxTexture;
+SamplerState sampler_skyboxTexture;
+static const float PI = 3.14159265f;
+
+float3 _octreeLowerBounds;
+float3 _octreeUpperBounds;
+
+float _skyboxIntensity;
+int _rayBounces;
+float2 _pixelOffset;
+
+float _directionalLightIntensity;
+float3 _directionalLightDirection;
+
+static const uint3 _childIndexOffsets[] = { uint3(0, 0, 0), uint3(0, 0, 1), uint3(0, 1, 0), uint3(0, 1, 1), uint3(1, 0, 0), uint3(1, 0, 1), uint3(1, 1, 0), uint3(1, 1, 1) };
+static RayHit _noHit = CreateRayHit();
+
+Ray CreateCameraRay(float2 uv)
+{
+    // Transform the camera origin to world space
+    float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+
+    // Invert the perspective projection of the view-space position
+    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
+    // Transform the direction from camera to world space and normalize
+    direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
+    direction = normalize(direction);
+    return CreateRay(origin, direction);
+}
+
+bool AABBIntersectDistance(AABB box, Ray ray, out float t)
+{
+    // This is actually correct, even though it appears not to handle edge cases
+    // (ray.n.{x,y,z} == 0).  It works because the infinities that result from
+    // dividing by zero will still behave correctly in the comparisons.  Rays
+    // which are parallel to an axis and outside the box will have tmin == inf
+    // or tmax == -inf, while rays inside the box will have tmin and tmax
+    // unchanged.
+
+    float3 rayInverse = 1.0f / ray.direction;
+
+    float tx1 = (box.min.x - ray.origin.x) * rayInverse.x;
+    float tx2 = (box.max.x - ray.origin.x) * rayInverse.x;
+
+    float tmin = min(tx1, tx2);
+    float tmax = max(tx1, tx2);
+
+    float ty1 = (box.min.y - ray.origin.y) * rayInverse.y;
+    float ty2 = (box.max.y - ray.origin.y) * rayInverse.y;
+
+    tmin = max(tmin, min(ty1, ty2));
+    tmax = min(tmax, max(ty1, ty2));
+
+    float tz1 = (box.min.z - ray.origin.z) * rayInverse.z;
+    float tz2 = (box.max.z - ray.origin.z) * rayInverse.z;
+
+    tmin = max(tmin, min(tz1, tz2));
+    tmax = min(tmax, max(tz1, tz2));
+
+    t = tmin;
+    return tmax >= max(0.0f, tmin);
+}
+
+RayHit AABBHitAndNormal(AABB box, Ray ray, in float t)
+{
+    RayHit hit = CreateRayHit();
+
+    hit.position = ray.origin + ray.direction * t;
+
+    float3 originHit = hit.position - box.min - ((box.max - box.min) / 2.0f);
+    if (abs(originHit.y) > abs(originHit.x))
+    {
+        hit.normal = abs(originHit.z) > abs(originHit.y) ? float3(0, 0, originHit.z) : float3(0, originHit.y, 0);
+    }
+    else
+    {
+        hit.normal = abs(originHit.z) > abs(originHit.x) ? float3(0, 0, originHit.z) : float3(originHit.x, 0, 0);
+    }
+    hit.normal = normalize(hit.normal);
+    hit.distance = t;
+
+    return hit;
+}
+
+bool AABBContains(float3 minBounds, float3 maxBounds, float3 pos)
+{
+    return pos.x >= minBounds.x && pos.x <= maxBounds.x
+        && pos.y >= minBounds.y && pos.y <= maxBounds.y
+        && pos.z >= minBounds.z && pos.z <= maxBounds.z;
+}
+
+void GetMidPlanes(float3 minBounds, float3 maxBounds, out Plane planeX, out Plane planeY, out Plane planeZ)
+{
+    float3 center = minBounds + ((maxBounds - minBounds) / 2);
+    planeX.normal = float3(1, 0, 0);
+    planeY.normal = float3(0, 1, 0);
+    planeZ.normal = float3(0, 0, 1);
+
+    planeX.position = center.x;
+    planeY.position = center.y;
+    planeZ.position = center.z;
+}
+
+float3 GetMidPlaneOffsets(Plane planeX, Plane planeY, Plane planeZ)
+{
+    return float3(planeX.position, planeY.position, planeZ.position);
+}
+
+float IntersectPlane(Ray ray, Plane plane)
+{
+    float ln = dot(ray.direction, plane.normal);
+    if (ln != 0) //Single point of intersection
+    {
+        float u = dot(plane.position - ray.origin, plane.normal);
+        float t = u / ln;
+
+        if (t > 0)
+        {
+            return t;
+        }
+    }
+
+    return 1.#INF;
+}
+
+const static uint CountBit8Table[] =
+{
+    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
+    4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8,
+};
+
+uint Count1Bits(uint mask)
+{
+    return CountBit8Table[mask & 0xFFu];
+}
+
+
+AABB CreateChildAABBForOctant(AABB bounds, int octantId)
+{
+    float3 childOffset = (float3)_childIndexOffsets[octantId];
+    float childSize = (bounds.max.x - bounds.min.x) / 2.0f;
+    
+    AABB childBounds;
+    childBounds.min = bounds.min + childSize * childOffset;
+    childBounds.max = bounds.min + childSize * (childOffset + float3(1, 1, 1));
+    return childBounds;
+}
+
+DepthData PrepareChildData(AABB childBounds, float3 voxelEntryPos, float3 rayDir, int childPtr)
+{
+    Plane planeX, planeY, planeZ;
+    GetMidPlanes(childBounds.min, childBounds.max, planeX, planeY, planeZ);
+    float3 planeOffsets = GetMidPlaneOffsets(planeX, planeY, planeZ);
+    int3 aboveAxis = (int3)(voxelEntryPos >= planeOffsets);
+
+    Ray childRay;
+    childRay.origin = voxelEntryPos, 
+    childRay.direction = rayDir;
+
+    DepthData depthData;
+    depthData.bounds = childBounds;
+    depthData.ray = childRay;
+    depthData.ptr = childPtr;
+    depthData.copiedNode = _octreeNodes[childPtr];
+    depthData.octantId = (aboveAxis.x << 2) | (aboveAxis.y << 1) | (aboveAxis.z);
+    depthData.distances = float3(
+        IntersectPlane(childRay, planeX),
+        IntersectPlane(childRay, planeY),
+        IntersectPlane(childRay, planeZ)
+    );
+    return depthData;
+}
+
+RayHit IntersectOctree(uint index, Ray ray, AABB bounds)
+{
+    uint depth = 0;
+    DepthData castStack[16];
+
+    DepthData depthData;
+    Plane planeX, planeY, planeZ;
+    GetMidPlanes(bounds.min, bounds.max, planeX, planeY, planeZ);
+    float3 planeOffsets = GetMidPlaneOffsets(planeX, planeY, planeZ);
+    int3 aboveAxis = (int3)(ray.origin >= planeOffsets);
+    depthData.bounds = bounds;
+    depthData.ray = ray;
+    depthData.ptr = index;
+    depthData.copiedNode = _octreeNodes[index];
+    depthData.octantId = (aboveAxis.x << 2) | (aboveAxis.y << 1) | (aboveAxis.z);
+    depthData.distances = float3(
+        IntersectPlane(ray, planeX),
+        IntersectPlane(ray, planeY),
+        IntersectPlane(ray, planeZ)
+    );
+
+    bool exit = false;
+    float3 hitPos = depthData.ray.origin;
+    while (!exit)
+    {
+        AABB childBounds = CreateChildAABBForOctant(depthData.bounds, depthData.octantId);
+
+        uint childBit = 1 << depthData.octantId;
+        bool isValidNode = (depthData.copiedNode.validMask & childBit) == childBit;
+        bool isLeafNode = (depthData.copiedNode.leafMask & childBit) == childBit;
+
+        if (isValidNode)
+        {
+            if (isLeafNode)
+            {
+                float t;
+                bool hasHit = AABBIntersectDistance(childBounds, depthData.ray, t);
+                if (!hasHit) return _noHit;
+
+                return AABBHitAndNormal(childBounds, depthData.ray, t);
+            }
+            else
+            {
+                //Move down the octree (push)
+
+                //a bitmask with 1 to the bit of octantId 
+                uint lowerIndexLeafOctantMask = childBit - 1u;
+                //zero out all higher bits than octantId (& op) and count bits which are 0 (tells you how many octants are before this one = offset)
+                uint offfset = Count1Bits((uint)(~depthData.copiedNode.leafMask & lowerIndexLeafOctantMask));
+
+                //Invalidate current path in copied node by setting valid for this octant to 0
+                depthData.copiedNode.validMask &= ~childBit;
+                //Push to stack
+                castStack[depth] = depthData;
+                depth++;
+
+                uint childIndex = depthData.ptr + depthData.copiedNode.childrenRelativePointer + offfset;
+                depthData = PrepareChildData(childBounds, hitPos, depthData.ray.direction, childIndex);
+
+                continue;
+            }
+        }
+
+        float minDist = min(min(depthData.distances.x, depthData.distances.y), depthData.distances.z);
+        if (isinf(minDist))
+        {
+            //no hit in this depth (pop)
+            // => move up 1 level 
+
+            if (depth == 0u) return _noHit;
+
+            depth--;
+            depthData = castStack[depth];
+            continue;
+        }
+
+        hitPos = depthData.ray.origin + depthData.ray.direction * minDist;
+        if (!AABBContains(depthData.bounds.min, depthData.bounds.max, hitPos))
+        {
+
+            //no hit anymore in parent bounding box => ray moves to another parent
+            if (depth == 0u) return _noHit;
+            depth--;
+
+            depthData = castStack[depth];
+            //copiedNode = castStack[depth].copiedNode;
+
+            //depthData = castStack[2];
+            continue;
+        }
+
+        if (minDist == depthData.distances.x)
+        {
+            depthData.octantId ^= 4;
+            depthData.distances.x = 1.#INF;
+        }
+        else if (minDist == depthData.distances.y)
+        {
+            depthData.octantId ^= 2;
+            depthData.distances.y = 1.#INF;
+        }
+        else if (minDist == depthData.distances.z)
+        {
+            depthData.octantId ^= 1;
+            depthData.distances.z = 1.#INF;
+        }
+    }
+
+    return _noHit;
+}
+
+
+RayHit Trace(Ray ray)
+{
+    AABB bounds;
+    bounds.min = _octreeLowerBounds;
+    bounds.max = _octreeUpperBounds;
+
+    //Check if bounding box of octree was hit
+
+    float t;
+    bool hasHit = AABBIntersectDistance(bounds, ray, t);
+    if (!hasHit) return _noHit;
+
+    //start ray from intersection point with bounding box
+    ray.origin = t < 0 ? ray.origin : ray.direction * t + ray.origin;
+    //hit = IntersectOctree(0, ray, bounds);
+    RayHit hit = IntersectOctree(0, ray, bounds);
+
+    return hit;
+}
+
+
+
+//bool InShadow(RayHit hit) 
+//{
+//    // * 0.001f is used to avoid self shadowing
+//    Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001f, -1 * _directionalLightDirection);
+//    RayHit shadowHit = Trace(shadowRay);
+//    if (shadowHit.distance != 1.#INF)
+//        return true;
+//    return false;
+//}
+
+float3 Shade(inout Ray ray, RayHit hit)
+{
+    if (hit.distance < 1.#INF)
+    {
+        //if (InShadow(hit)) return float3(0.00f, 0.00f, 0.00f);
+        float3 albedo = float3(.6f, .6f, .6f);
+
+        //lambertian color
+        float3 color = saturate(dot(hit.normal, _directionalLightDirection) * -1) * _directionalLightIntensity * hit.albedo;
+        
+        //phong shading
+		//float3 reflectVec = reflect(_directionalLightDirection, hit.normal);
+        
+		//float3 camWorldPos = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+		//float3 viewVec = normalize(camWorldPos - hit.position);
+		//color += pow(saturate(dot(reflectVec, viewVec) * -1), 3) * hit.specular;
+        
+        
+		return color;
+	}
+    else
+    {
+        // Erase the ray's energy - the sky doesn't reflect anything
+        // Stops the ray from bouncing arround
+        //ray.energy = 0.0f;
+
+        // Sample the skybox and write it
+        float theta = acos(ray.direction.y) / -PI;
+        float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+        float3 color =  _skyboxTexture.SampleLevel(sampler_skyboxTexture, float2(phi, theta), 0).xyz;
+        return color;
+    }
+}
+
+//void ReflectRay(inout Ray ray, RayHit hit) 
+//{
+//    if (hit.distance < 1.#INF)
+//    {
+//        // Reflect the ray and multiply energy with specular reflection
+//        ray.origin = hit.position + hit.normal * 0.001f;
+//        ray.direction = reflect(ray.direction, hit.normal);
+//		ray.energy *= hit.specular;
+//	}
+//}
+
+[numthreads(LOCAL_GROUP_SIZE, LOCAL_GROUP_SIZE, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // Get the dimensions of the RenderTexture
+    uint width, height;
+    Result.GetDimensions(width, height);
+    // Transform pixel to [-1,1] range
+	float2 uv = float2((id.xy + float2(0.5f, .5f)) / float2(width, height) * 2.0f - 1.0f);
+    // Get a ray for the UVs
+    Ray ray = CreateCameraRay(uv);
+
+    RayHit hit = Trace(ray);
+    //RayHit hit = CreateRayHit();
+    float3 result = Shade(ray, hit);
+
+    /*float x = _octreeLowerBounds.x == -1.513057 ? 1 : 0;
+    float y = _octreeUpperBounds.x == 1.513057 ? 1 : 0;*/
+    ////x = _octreeNodes[0].validMask == 224 ? 1 : 0;
+    //x = _octreeNodes[0].childrenRelativePointer == 1 ? 1 : 0;
+
+    //Result[id.xy] = float4(float3(0.0f, y, 0.0f), 1.0f);
+    Result[id.xy] = float4(result, 1.0f);
+}

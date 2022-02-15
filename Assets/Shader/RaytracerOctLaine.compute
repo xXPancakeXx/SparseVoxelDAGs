@@ -1,0 +1,123 @@
+#pragma kernel CSMain DATA_GRAY MODE_POSITION
+#pragma kernel CSMain DATA_GRAY MODE_COLOR
+#pragma kernel CSMain DATA_GRAY MODE_POSITION_NORMALIZED
+#pragma kernel CSMain DATA_COLOR MODE_POSITION
+#pragma multi_compile SHADOWS _
+
+#define LOCAL_GROUP_SIZE 8
+
+#ifdef DATA_GRAY
+#include "tracersOct.cginc"
+#endif
+#ifdef DATA_COLOR
+#include "tracersOct_color.cginc"
+#endif
+
+RWTexture2D<float4> _outPositions;
+RWTexture2D<int> _outColorIndices;
+
+RWStructuredBuffer<SVONode> _inVoxels;
+
+int _octreeMaxDepth;
+
+float4x4 _cameraToWorld;
+float4x4 _cameraInverseProjection;
+
+Texture2D<float4> _skyboxTexture;
+SamplerState sampler_skyboxTexture;
+float _directionalLightIntensity;
+float3 _directionalLightDirection;
+
+static const float PI = 3.14159265f;
+float _projFactor;
+
+float2 _pixelOffset;
+
+float3 GetNormal(float3 hitPos, float3 pos, float t)
+{
+    float3 normal;
+    float3 originHit = hitPos - pos;
+    if (abs(originHit.y) > abs(originHit.x))
+    {
+        normal = abs(originHit.z) > abs(originHit.y) ? float3(0, 0, originHit.z) : float3(0, originHit.y, 0);
+    }
+    else
+    {
+        normal = abs(originHit.z) > abs(originHit.x) ? float3(0, 0, originHit.z) : float3(originHit.x, 0, 0);
+    }
+
+    return normalize(normal);
+}
+
+float3 Shade(Ray ray, TraceResult res)
+{
+    if (res.t != 2.0f)
+    {
+        //if (InShadow(hit)) return float3(0.00f, 0.00f, 0.00f);
+        float3 normal = GetNormal(GetHitWorldPos(ray, res), res.voxelPos, res.t);
+
+        //lambertian color
+        float3 color = saturate(dot(normal, _directionalLightDirection) * -1) * _directionalLightIntensity * float3(.6f, .6f, .6f);
+
+        return color;
+    }
+    else
+    {
+        // Sample the skybox and write it
+        float theta = acos(ray.direction.y) / -PI;
+        float phi = atan2(ray.direction.x, ray.direction.z) / -PI * 0.5f;
+        float3 color = _skyboxTexture.SampleLevel(sampler_skyboxTexture, float2(phi, theta), 0).xyz;
+        return color;
+    }
+}
+
+[numthreads(LOCAL_GROUP_SIZE, LOCAL_GROUP_SIZE, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID, uint3 gThreadId : SV_GroupThreadID)
+{
+    // Get the dimensions of the RenderTexture
+    uint width, height;
+    _outPositions.GetDimensions(width, height);
+
+    // Transform pixel to [-1,1] range
+	float2 uv = float2((id.xy + _pixelOffset) / float2(width, height) * 2.0f - 1.0f);
+    
+    // Get a ray for the UVs
+    Ray ray = CreateCameraRay(uv, _cameraToWorld, _cameraInverseProjection);
+
+    TraceResult res;
+    TraceOct(_inVoxels, _octreeMaxDepth, ray, res, _projFactor);
+
+#ifdef MODE_POSITION
+    #ifdef DATA_COLOR
+    _outColorIndices[id.xy] = res.colorIndex;
+    #endif
+    
+    #ifdef SHADOWS
+    if (any(res.hitPos))
+    {
+        //Create shadow ray
+        float3 origin = res.hitPos + -_directionalLightDirection * .01f;
+        float3 dir = -_directionalLightDirection;
+        Ray shadowRay = CreateRay(origin, dir);
+
+        TraceResult shRes;
+        TraceOct(_inVoxels, _octreeMaxDepth, shadowRay, shRes, 0.0f);
+        _outPositions[id.xy] = float4(res.hitPos, any(shRes.hitPos) ? 0.0f : 1.0f);
+                
+        return;
+    }
+    #endif
+    _outPositions[id.xy] = float4(res.hitPos, 1.0f);
+#endif
+
+
+#ifdef MODE_POSITION_NORMALIZED
+    float3 col = res.hitPos.z - 1.0f;
+    _outPositions[id.xy] = float4(col, 1.0f);
+#endif
+
+#ifdef MODE_COLOR   
+    float3 col = Shade(ray, res);
+    _outPositions[id.xy] = float4(col, 1.0f);
+#endif
+}

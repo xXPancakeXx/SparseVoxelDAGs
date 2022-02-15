@@ -1,0 +1,215 @@
+#pragma kernel DepthNormal NORMAL_FORWARD SHADING_GRAY
+#pragma kernel DepthNormal NORMAL_CROSS SHADING_GRAY
+#pragma kernel DepthNormal NORMAL_CENTRAL SHADING_GRAY
+#pragma kernel DepthNormal NORMAL_FORWARD SHADING_COLOR
+#pragma kernel DepthNormal NORMAL_CROSS SHADING_COLOR
+#pragma kernel DepthNormal NORMAL_CENTRAL SHADING_COLOR
+
+#define LOCAL_GROUP_SIZE 8
+#define BORDER_WIDTH 1
+#include <UnityShaderVariables.cginc>
+
+RWTexture2D<float4> _outColors;
+
+RWStructuredBuffer<int> _inColors;
+RWTexture2D<float4> _inPositions;
+RWTexture2D<int> _inColorIndices;
+
+float4x4 _cameraToWorld;
+float4x4 _cameraInverseProjection;
+float _directionalLightIntensity;
+float3 _directionalLightDirection;
+Texture2D<float4> _skyboxTexture;
+SamplerState sampler_skyboxTexture;
+static const float PI = 3.14159265f;
+
+struct Ray
+{
+    float3 origin;
+    float3 direction;
+};
+
+Ray CreateRay(float3 origin, float3 direction)
+{
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+    return ray;
+}
+
+Ray CreateCameraRay(float2 uv)
+{
+    // Transform the camera origin to world space
+    float3 origin = mul(_cameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+
+    // Invert the perspective projection of the view-space position
+    float3 direction = mul(_cameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
+    // Transform the direction from camera to world space and normalize
+    direction = mul(_cameraToWorld, float4(direction, 0.0f)).xyz;
+    direction = normalize(direction);
+    return CreateRay(origin, direction);
+}
+
+
+void filterSmallVals(inout float3 c)
+{
+    const float epsilon = 1e-4f;
+
+    if (abs(c.x) < epsilon) c.x = 0;
+    if (abs(c.y) < epsilon) c.y = 0;
+    if (abs(c.z) < epsilon) c.z = 0;
+}
+
+float3 evalNormalForward(float3 pos, uint2 xy) {
+    float3 p1 = _inPositions[BORDER_WIDTH + xy + uint2(1, 0)].xyz;
+    float3 p2 = _inPositions[BORDER_WIDTH + xy + uint2(0, 1)].xyz;
+
+    float3 dir1 = normalize(p1 - pos);
+    float3 dir2 = normalize(p2 - pos);
+    float3 c = cross(dir2, dir1);
+    if (abs(c.x) < exp2(-23)) c.x = 0;
+    if (abs(c.y) < exp2(-23)) c.y = 0;
+    if (abs(c.z) < exp2(-23)) c.z = 0;
+
+    return normalize(c);
+}
+
+float3 evalNormalCross(float3 pos, uint2 xy) {
+    float3 right = _inPositions[xy + int2(1, 0)].xyz - pos;
+    float3 left = _inPositions[xy + int2(-1, 0)].xyz - pos;
+    float3 up = _inPositions[xy + int2(0, 1)].xyz - pos;
+    float3 down = _inPositions[xy + int2(0, -1)].xyz - pos;
+
+    /*filterSmallVals(right);
+    filterSmallVals(left);
+    filterSmallVals(up);
+    filterSmallVals(down);*/
+
+    //right = normalize(right);
+    //left = normalize(left);
+    //up = normalize(up);
+    //down = normalize(down);
+
+    const float3 horizontal = (abs(right.z)) < (abs(left.z)) ? right : -left;
+    const float3 vertical = (abs(up.z)) < (abs(down.z)) ? up : -down;
+
+    float3 c = cross(vertical, horizontal);
+    /*if (abs(c.x) < exp2(-28)) c.x = 0;
+    if (abs(c.y) < exp2(-28)) c.y = 0;
+    if (abs(c.z) < exp2(-28)) c.z = 0;*/
+
+    return normalize(c);
+}
+
+float3 evalNormalCentralDifferences(in float3 pos, uint2 xy) {
+    float3 right = _inPositions[xy + int2(+1, +0)].xyz;
+    float3 left  = _inPositions[xy + int2(-1, +0)].xyz;
+    float3 up    = _inPositions[xy + int2(+0, +1)].xyz;
+    float3 down  = _inPositions[xy + int2(+0, -1)].xyz;
+
+    const float epsilon = 1e-1f;    //this keeps normals from getting artifacted when one voxel is behind another voxel (set it to 1e-0f too see the problem)
+
+    if (!any(right)     || length(right - pos) > epsilon) 
+        right = pos;
+    if (!any(left)      || length(left - pos)  > epsilon)
+        left = pos;
+    if (!any(up)        || length(up - pos)    > epsilon)
+        up = pos;
+    if (!any(down)      || length(down - pos)  > epsilon)
+        down = pos;
+
+    const float3 horizontal = (right - left) * .5f;
+    const float3 vertical   = (up    - down) * .5f;
+
+    const float3 c = cross(vertical, horizontal);
+    return normalize(c);
+}
+
+// int   seed = 1;
+// void  srand(int s ) { seed = s; }
+// int   rand(void)  { seed=seed*0x343fd+0x269ec3; return (seed>>16)&32767; }
+// float frand(void) { return float(rand())/32767.0; }
+// int hash( int n ) { n=(n<<13)^n; return n*(n*n*15731+789221)+1376312589; }
+//
+
+[numthreads(LOCAL_GROUP_SIZE, LOCAL_GROUP_SIZE, 1)]
+void DepthNormal(uint3 id : SV_DispatchThreadID, uint3 gThreadId : SV_GroupThreadID)
+{
+    // Get the dimensions of the RenderTexture
+    uint width, height;
+    _outColors.GetDimensions(width, height);
+    
+    id.xy += uint2(BORDER_WIDTH, BORDER_WIDTH);
+
+    const float3 pos = _inPositions[id.xy].xyz;
+    const float alpha = _inPositions[id.xy].w;
+    
+    if (!any(pos))
+    {
+        float2 uv = float2((id.xy + float2(0.5f, .5f)) / float2(width, height) * 2.0f - 1.0f);
+        Ray ray = CreateCameraRay(uv);
+
+        float theta = acos(ray.direction.y) / -PI;
+        float phi = atan2(ray.direction.x, ray.direction.z) / -PI * 0.5f;
+        float3 color = _skyboxTexture.SampleLevel(sampler_skyboxTexture, float2(phi, theta), 0).xyz;
+        _outColors[id.xy] = float4(color, 1.0f);
+        return;
+    }
+
+    //possible normal generation methods
+    //----------------------------------
+    //forward-backward differences
+    //central differences
+    //finite differences theory
+    //sobel filter
+
+    float3 normal = 0.0f;
+
+#ifdef NORMAL_FORWARD
+    normal = evalNormalForward(pos, id.xy);
+#endif
+
+#if NORMAL_CROSS
+    normal = evalNormalCross(pos, id.xy);
+#endif
+
+#ifdef NORMAL_CENTRAL
+    normal = evalNormalCentralDifferences(pos, id.xy);
+#endif
+
+    float3 albedo;
+#if SHADING_GRAY
+    albedo = .6f;
+#endif
+
+#ifdef SHADING_COLOR
+    int colorIndex = _inColorIndices[id.xy];
+    int c = _inColors[colorIndex];
+
+    int x = c & 0xFF;
+    int y = (c >> 8) & 0xFF;
+    int z = (c >> 16) & 0xFF;
+    albedo = float3(x / 255.0f, y / 255.0f, z / 255.0f);
+#endif
+
+    //srand( hash(id.xy+hash(id.y+hash(1117*_Time.y))));
+
+    //phong shading
+    const float3 refl = reflect(_directionalLightDirection, normal);
+
+    const float shininess = 128.0f;
+    const float3 specCol = float3(1,1,1);
+    
+    const float3 specular = pow(saturate(dot(normal, refl)), shininess) * specCol;
+    const float3 diffuse = saturate(-dot(normal, _directionalLightDirection)) * _directionalLightIntensity * albedo;
+    const float3 ambient = .07f * albedo;
+
+    float3 col = diffuse + ambient + specular;
+    if (alpha == 0.0f)      //indicates if this position is in shadow
+    {
+        _outColors[id.xy] = float4(ambient, 1.0f);;
+        return;
+    }
+    
+    _outColors[id.xy] = float4(col, 1.0f);
+}

@@ -1,0 +1,177 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-1772849268826808301
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a92aacc16667fb4e8e4dda978e7f59e, type: 3}
+  m_Name: RaytracingFeature
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  octreeShader: {fileID: 7200000, guid: 7b8c0e08f08c3fd4eb345444efbff79a, type: 3}
+  dagShader: {fileID: 7200000, guid: 6224b97457131474fb82e25520e162a1, type: 3}
+  event: 550
+  settings:
+    cameraToWorld:
+      c0:
+        x: 0.9976816
+        y: -0.000000016058491
+        z: 0.06805397
+        w: 0
+      c1:
+        x: -0.025367351
+        y: 0.9279304
+        z: 0.37188938
+        w: 0
+      c2:
+        x: 0.06314933
+        y: 0.3727536
+        z: -0.92577904
+        w: 0
+      c3:
+        x: 1.5
+        y: 1.7599999
+        z: 1.4999999
+        w: 1
+    cameraInverseProjection:
+      c0:
+        x: 0.8675135
+        y: 0
+        z: -0
+        w: 0
+      c1:
+        x: 0
+        y: 0.57735026
+        z: -0
+        w: 0
+      c2:
+        x: 0
+        y: 0
+        z: -0.00000005960345
+        w: -49.999496
+      c3:
+        x: 0
+        y: 0
+        z: -1
+        w: 50.0005
+    drawPositionGrayScale: 0
+    enableScreenSpaceNormals: 1
+    normalMethod: 2
+    enableTAA: 1
+    skyboxTexture: {fileID: 2800000, guid: d152582fbabba8d46855b543b6ef14cc, type: 3}
+    rayBounces: 4
+    skyboxIntensity: 0.3
+    directionalLightIntensity: 1.2
+    directionalLightDirection: {x: 0.7323053, y: -0.68097657, z: -0.000000029802322}
+    rtShader: {fileID: 7200000, guid: 7b8c0e08f08c3fd4eb345444efbff79a, type: 3}
+    depthShadeShader: {fileID: 7200000, guid: 1ae9efcff0fdb9846bfba3cd16d08785, type: 3}
+    renderInfo: {fileID: 5022602860645237092, guid: 4b227124801e27c459a90cc6f6a57d60, type: 3}
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: de640fe3d0db1804a85f9fc8f5cadab6, type: 3}
+  m_Name: ForwardRendererUnity
+  m_EditorClassIdentifier: 
+  m_RendererFeatures: []
+  m_RendererFeatureMap: 
+  postProcessData: {fileID: 0}
+  xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
+  shaders:
+    blitPS: {fileID: 4800000, guid: c17132b1f77d20942aa75f8429c0f8bc, type: 3}
+    copyDepthPS: {fileID: 4800000, guid: d6dae50ee9e1bfa4db75f19f99355220, type: 3}
+    screenSpaceShadowPS: {fileID: 4800000, guid: 0f854b35a0cf61a429bd5dcfea30eddd, type: 3}
+    samplingPS: {fileID: 4800000, guid: 04c410c9937594faa893a11dceb85f7e, type: 3}
+    stencilDeferredPS: {fileID: 4800000, guid: e9155b26e1bc55942a41e518703fe304, type: 3}
+    fallbackErrorPS: {fileID: 4800000, guid: e6e9a19c3678ded42a3bc431ebef7dbd, type: 3}
+    materialErrorPS: {fileID: 4800000, guid: 5fd9a8feb75a4b5894c241777f519d4e, type: 3}
+  m_OpaqueLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_TransparentLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_DefaultStencilState:
+    overrideStencilState: 0
+    stencilReference: 0
+    stencilCompareFunction: 8
+    passOperation: 0
+    failOperation: 0
+    zFailOperation: 0
+  m_ShadowTransparentReceive: 0
+  m_RenderingMode: 0
+  m_AccurateGbufferNormals: 0
+--- !u!114 &6591638005752672489
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba3fa0dc7f9490847ab602081bdbbc7d, type: 3}
+  m_Name: NewRaytracingFeature
+  m_EditorClassIdentifier: 
+  m_Active: 1
+  rtShader: {fileID: 7200000, guid: 2d4987895a7d4dc45b404014c30149a4, type: 3}
+  event: 1000
+  data:
+    cameraToWorld:
+      c0:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+      c1:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+      c2:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+      c3:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+    cameraInverseProjection:
+      c0:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+      c1:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+      c2:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+      c3:
+        x: 0
+        y: 0
+        z: 0
+        w: 0
+    skyboxTexture: {fileID: 2800000, guid: d152582fbabba8d46855b543b6ef14cc, type: 3}
+    rayBounces: 4
+    skyboxIntensity: 0.3
+    directionalLightIntensity: 0
+    directionalLightDirection: {x: 0, y: 0, z: 0}
+  camera: {fileID: 0}

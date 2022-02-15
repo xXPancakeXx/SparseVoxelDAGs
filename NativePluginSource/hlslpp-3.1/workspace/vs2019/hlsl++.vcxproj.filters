@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="platforms">
+      <UniqueIdentifier>{FDCC2FD5-6937-E44B-B275-95F11E1FC2A0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="swizzle">
+      <UniqueIdentifier>{5DD36FB5-C9B2-EE50-D2CA-79273E2955B2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="transform">
+      <UniqueIdentifier>{81DD9323-ED47-489A-3686-F93FA22F26EF}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\include\hlsl++.h" />
+    <ClInclude Include="..\..\include\hlsl++_bitmask.h" />
+    <ClInclude Include="..\..\include\hlsl++_common.h" />
+    <ClInclude Include="..\..\include\hlsl++_dependent.h" />
+    <ClInclude Include="..\..\include\hlsl++_matrix_float.h" />
+    <ClInclude Include="..\..\include\hlsl++_quaternion.h" />
+    <ClInclude Include="..\..\include\hlsl++_vector_double.h" />
+    <ClInclude Include="..\..\include\hlsl++_vector_float.h" />
+    <ClInclude Include="..\..\include\hlsl++_vector_float8.h" />
+    <ClInclude Include="..\..\include\hlsl++_vector_int.h" />
+    <ClInclude Include="..\..\include\hlsl++_vector_uint.h" />
+    <ClInclude Include="..\..\include\platforms\hlsl++_360.h">
+      <Filter>platforms</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\platforms\hlsl++_neon.h">
+      <Filter>platforms</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\platforms\hlsl++_scalar.h">
+      <Filter>platforms</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\platforms\hlsl++_sse.h">
+      <Filter>platforms</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row0_1.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row0_2.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row0_3.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row0_4.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row1_1.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row1_2.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row1_3.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row1_4.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row2_1.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row2_2.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row2_3.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row2_4.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row3_1.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row3_2.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row3_3.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_matrix_row3_4.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_double_w.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_double_x.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_double_y.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_double_z.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_float_w.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_float_x.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_float_y.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_float_z.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_int_w.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_int_x.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_int_y.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_int_z.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_uint_w.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_uint_x.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_uint_y.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\swizzle\hlsl++_vector_uint_z.h">
+      <Filter>swizzle</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\transform\hlsl++_transform_common.h">
+      <Filter>transform</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\transform\hlsl++_transform_float2x2.h">
+      <Filter>transform</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\transform\hlsl++_transform_float3x3.h">
+      <Filter>transform</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\transform\hlsl++_transform_float4x4.h">
+      <Filter>transform</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="..\..\include\hlsl++.natvis" />
+  </ItemGroup>
+</Project>
