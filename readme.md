@@ -1,4 +1,4 @@
-Volization & Raytracing in a single project, realized in Unity 2021.1.18f1
+Voxelization & Raytracing in a single project, realized in Unity 2021.1.18f1
 
 * Uses sparse voxel directed acyclic graphs and sparse voxel octrees
 * Also includes chunk loading
